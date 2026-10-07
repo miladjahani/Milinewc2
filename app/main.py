@@ -1,7 +1,7 @@
 import os
 import asyncio
 import logging
-from typing import Optional
+from typing import Optional, Dict, Any
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -33,6 +33,20 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
+
+def render_template(template_name: str, request: Request, context: Optional[Dict[str, Any]] = None) -> Response:
+    """
+    Universal template renderer compatible with both modern Starlette (0.36+, FastAPI >= 0.108.0)
+    and legacy Starlette (< 0.36) to prevent TypeError: unhashable type: 'dict'.
+    """
+    ctx = context.copy() if context else {}
+    ctx["request"] = request
+    try:
+        # Modern Starlette: TemplateResponse(request=request, name=template_name, context=ctx)
+        return templates.TemplateResponse(request=request, name=template_name, context=ctx)
+    except TypeError:
+        # Legacy Starlette: TemplateResponse(template_name, ctx)
+        return templates.TemplateResponse(template_name, ctx)
 
 # Include API Routers
 app.include_router(auth.router)
@@ -177,14 +191,14 @@ async def serve_index(request: Request):
     token = request.cookies.get("miliconfig_token")
     if not token or not verify_access_token(token):
         return RedirectResponse(url="/login", status_code=302)
-    return templates.TemplateResponse("index.html", {"request": request})
+    return render_template("index.html", request)
 
 @app.get("/login", response_class=HTMLResponse)
 async def serve_login(request: Request):
     token = request.cookies.get("miliconfig_token")
     if token and verify_access_token(token):
         return RedirectResponse(url="/", status_code=302)
-    return templates.TemplateResponse("login.html", {"request": request})
+    return render_template("login.html", request)
 
 # ---------------- xHTTP POST ROUTING ----------------
 @app.post("/xhttp")
